@@ -1,0 +1,46 @@
+[
+	{
+		"remarks": "🇪🇺 Всё и сразу 🧠",
+		"meta": { "serverDescription": "Автовыбор доступного сервера" },
+		"log": { "loglevel": "none" },
+		"inbounds": [
+			{ "tag": "socks", "port": 10808, "listen": "127.0.0.1", "protocol": "socks", "settings": { "udp": true, "auth": "noauth" }, "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"] } },
+			{ "tag": "http", "port": 10809, "listen": "127.0.0.1", "protocol": "http", "settings": {}, "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"] } },
+			{ "tag": "entry-lte", "port": 10803, "listen": "127.0.0.1", "protocol": "dokodemo-door", "settings": { "address": "127.0.0.1", "network": "tcp,udp", "followRedirect": true }, "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"] } }
+		],
+		"outbounds": [
+			{ "tag": "node-0", "protocol": "vless", "settings": { "vnext": [{ "address": "node.example", "port": 443, "users": [{ "id": "uuid", "encryption": "none", "flow": "xtls-rprx-vision" }] }] }, "streamSettings": { "network": "tcp", "security": "reality", "realitySettings": { "serverName": "www.example.com", "publicKey": "pk", "shortId": "sid", "fingerprint": "chrome" } } },
+			{ "tag": "hy-0", "protocol": "hysteria", "settings": { "address": "hy.example", "port": 8443, "version": 2 }, "streamSettings": { "network": "hysteria", "hysteriaSettings": { "version": 2, "auth": "uuid" }, "security": "tls", "tlsSettings": { "serverName": "www.microsoft.com", "serverNameToVerify": "hy.example", "fingerprint": "firefox", "alpn": ["h3"] } } },
+			{ "tag": "lte-0", "protocol": "vless", "settings": { "vnext": [{ "address": "lte.example", "port": 443, "users": [{ "id": "uuid2", "encryption": "none" }] }] }, "streamSettings": { "network": "xhttp", "security": "reality", "realitySettings": { "serverName": "cdn.example", "publicKey": "pk2", "shortId": "s2", "fingerprint": "chrome" }, "xhttpSettings": { "path": "/x", "mode": "packet-up" } } },
+			{ "tag": "loop_to_lte", "protocol": "loopback", "settings": { "inboundTag": "entry-lte" } },
+			{ "tag": "direct", "protocol": "freedom" },
+			{ "tag": "block", "protocol": "blackhole" }
+		],
+		"routing": {
+			"domainStrategy": "IPIfNonMatch",
+			"rules": [
+				{ "type": "field", "inboundTag": ["socks", "http"], "domain": ["regexp:\\.ru$"], "balancerTag": "lb_ru" },
+				{ "type": "field", "inboundTag": ["socks", "http"], "ip": ["10.0.0.0/8"], "outboundTag": "direct" },
+				{ "type": "field", "inboundTag": ["entry-lte"], "balancerTag": "lb_lte" },
+				{ "type": "field", "inboundTag": ["socks", "http"], "network": "tcp,udp", "balancerTag": "lb_geo" }
+			],
+			"balancers": [
+				{ "tag": "lb_geo", "selector": ["node-", "hy-"], "strategy": { "type": "leastLoad" }, "fallbackTag": "loop_to_lte" },
+				{ "tag": "lb_ru", "selector": ["direct"], "strategy": { "type": "leastLoad" }, "fallbackTag": "loop_to_lte" },
+				{ "tag": "lb_lte", "selector": ["lte-"], "strategy": { "type": "leastLoad" }, "fallbackTag": "block" }
+			]
+		},
+		"observatory": { "subjectSelector": ["node-", "hy-", "lte-", "direct"], "probeUrl": "http://www.gstatic.com/generate_204", "probeInterval": "60s" }
+	},
+	{
+		"remarks": "🇩🇪 Германия",
+		"inbounds": [
+			{ "tag": "socks", "port": 10808, "listen": "127.0.0.1", "protocol": "socks", "settings": { "udp": true }, "sniffing": { "enabled": true, "destOverride": ["http", "tls"] } }
+		],
+		"outbounds": [
+			{ "tag": "node-0", "protocol": "vless", "settings": {} },
+			{ "tag": "direct", "protocol": "freedom" }
+		],
+		"routing": { "rules": [] }
+	}
+]

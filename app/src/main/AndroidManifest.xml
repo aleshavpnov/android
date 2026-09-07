@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:tools="http://schemas.android.com/tools">
+
+	<uses-permission android:name="android.permission.INTERNET" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+	<application
+		android:name=".App"
+		android:label="@string/app_name"
+		android:icon="@mipmap/ic_launcher"
+		android:allowBackup="false"
+		android:supportsRtl="true"
+		android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+		<!-- singleTask: диплинк из кабинета приходит в уже открытое окно через onNewIntent,
+		     а не плодит копии активити поверх друг друга. -->
+		<activity
+			android:name=".ui.MainActivity"
+			android:exported="true"
+			android:launchMode="singleTask"
+			android:windowSoftInputMode="adjustResize">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+			<!-- App Link из кабинета: https://durov.aimuzov.online/app/add#u=… -->
+			<intent-filter android:autoVerify="true">
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="https" android:host="durov.aimuzov.online" android:path="/app/add" />
+			</intent-filter>
+			<!-- Своя схема — для intent:// со страницы-моста и для ссылок из бота. -->
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="aleshavpnov" android:host="add" />
+			</intent-filter>
+		</activity>
+
+		<service
+			android:name=".vpn.TunnelService"
+			android:exported="true"
+			android:permission="android.permission.BIND_VPN_SERVICE"
+			android:foregroundServiceType="specialUse">
+			<property
+				android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+				android:value="vpn" />
+			<intent-filter>
+				<action android:name="android.net.VpnService" />
+			</intent-filter>
+		</service>
+
+		<!-- Скачанный APK обновления отдаём системному установщику по content://-ссылке. -->
+		<provider
+			android:name="androidx.core.content.FileProvider"
+			android:authorities="${applicationId}.files"
+			android:exported="false"
+			android:grantUriPermissions="true">
+			<meta-data
+				android:name="android.support.FILE_PROVIDER_PATHS"
+				android:resource="@xml/file_paths" />
+		</provider>
+	</application>
+</manifest>
