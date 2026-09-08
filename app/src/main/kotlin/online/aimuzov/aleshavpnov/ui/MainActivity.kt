@@ -2,6 +2,7 @@ package online.aimuzov.aleshavpnov.ui
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
 					update = update,
 					onConnect = controller::start,
 					onDisconnect = controller::stop,
+					onOpenCabinet = ::openCabinet,
 					onInstallUpdate = ::installUpdate,
 				)
 			}
@@ -75,6 +77,10 @@ class MainActivity : ComponentActivity() {
 			Toast.makeText(this@MainActivity, "Подписка добавлена", Toast.LENGTH_SHORT).show()
 			controller.start()
 		}
+	}
+
+	private fun openCabinet() {
+		startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.CABINET_URL)))
 	}
 
 	private fun installUpdate() {

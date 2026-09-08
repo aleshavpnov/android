@@ -19,11 +19,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonArray
 import online.aimuzov.aleshavpnov.App
 import online.aimuzov.aleshavpnov.R
 import online.aimuzov.aleshavpnov.core.ConfigPreparer
@@ -45,6 +41,8 @@ class TunnelService : VpnService() {
 	private var tun: ParcelFileDescriptor? = null
 	private val core: XrayCore = LibXrayCore
 	private val app get() = application as App
+	private var connectedAt = 0L
+	private var lastCoreError: String? = null
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 		// Always-on VPN будит сервис без intent — это тоже просьба подключиться.
@@ -59,6 +57,9 @@ class TunnelService : VpnService() {
 	}
 
 	private suspend fun connect() {
+		// Второй диплинк при живом туннеле — это просьба переподключиться со свежей ссылкой.
+		// Ядро в процессе одно, и без остановки старого runXray отвечает «already running».
+		release()
 		val store = app.store
 		val url = store.url()
 		if (url == null) {
@@ -74,7 +75,7 @@ class TunnelService : VpnService() {
 					fail(TunnelError.SubscriptionUnavailable, err.message, null)
 					return
 				}
-				SubscriptionFetcher.Response(cached.body, decodeHeaders(cached.headersJson))
+				SubscriptionFetcher.Response(cached.body, cached.headers)
 			}
 		val info = SubscriptionHeaders.parse(response.headers)
 		val profiles =
@@ -89,7 +90,7 @@ class TunnelService : VpnService() {
 				}
 				is SubscriptionResponse.Profiles -> classified.profiles
 			}
-		store.saveCache(response.body, encodeHeaders(response.headers))
+		store.saveCache(response.body, response.headers)
 
 		set(TunnelState.Connecting("Поднимаю туннель"))
 		val pfd =
@@ -101,41 +102,94 @@ class TunnelService : VpnService() {
 		tun = pfd
 
 		set(TunnelState.Connecting("Запускаю ядро"))
-		val configFile = File(filesDir, "config.json")
-		var config = ConfigPreparer.prepare(profiles, pfd.fd, MTU)
-		withContext(Dispatchers.IO) { configFile.writeText(config.toString()) }
-		core.setDns("8.8.8.8:53").onFailure { Log.w(TAG, "setDNS", it) }
-		var check = core.test(configFile.path)
-		if (check.isFailure) {
-			// Форк Happ знает больше ядра: если конфиг не прошёл, пробуем без hysteria.
-			Log.w(TAG, "конфиг отвергнут, повторяю без hysteria: ${check.exceptionOrNull()?.message}")
-			config = ConfigPreparer.withoutProtocols(config, setOf("hysteria"))
-			withContext(Dispatchers.IO) { configFile.writeText(config.toString()) }
-			check = core.test(configFile.path)
-		}
-		val started = check.mapCatching { core.run(configFile.path).getOrThrow() }
-		if (started.isFailure) {
-			Log.e(TAG, "ядро не поднялось", started.exceptionOrNull())
+		if (startCore(profiles, pfd.fd).isFailure) {
 			closeTun()
-			fail(TunnelError.Core, started.exceptionOrNull()?.message, info)
+			fail(TunnelError.Core, lastCoreError, info)
 			return
 		}
-		set(TunnelState.Connected(System.currentTimeMillis(), info))
-		updateNotification(getString(R.string.notification_connected) + (info.title?.let { " · $it" } ?: ""))
+		connectedAt = System.currentTimeMillis()
+		set(TunnelState.Connected(connectedAt, info))
+		updateNotification(getString(R.string.notification_connected))
 		Log.i(TAG, "подключено, ядро ${core.version()}")
-		watch(info)
+		watch(info, response.body)
 	}
 
-	private suspend fun watch(info: SubscriptionInfo) {
+	/**
+	 * Пока туннель жив: следим за ядром и раз в час перечитываем подписку. Профиль меняется
+	 * на стороне бота (новые ноды, тумблеры провайдеров), и клиент должен подхватывать это сам,
+	 * без ручного обновления — иначе человек сидит на устаревшем каскаде до перезапуска.
+	 */
+	private suspend fun watch(info: SubscriptionInfo, body: String) {
+		var lastBody = body
+		var sinceRefresh = 0L
 		while (true) {
-			delay(10_000)
+			delay(TICK_MS)
 			if (!core.isRunning) {
 				Log.e(TAG, "ядро остановилось само")
 				teardown(TunnelState.Error(TunnelError.CoreDied, null, info))
 				return
 			}
+			sinceRefresh += TICK_MS
+			if (sinceRefresh < REFRESH_MS) continue
+			sinceRefresh = 0L
+			val url = app.store.url() ?: continue
+			val fresh =
+				runCatching { SubscriptionFetcher(app.identity).fetch(url) }.getOrElse { err ->
+					Log.w(TAG, "фоновое обновление подписки не удалось", err)
+					continue
+				}
+			val classified = SubscriptionResponse.classify(fresh.body, fresh.headers)
+			if (classified !is SubscriptionResponse.Profiles) {
+				// Ссылку отозвали или упёрлись в лимит устройств — рвать канал молча нельзя,
+				// показываем причину и гасим туннель.
+				val refreshed = SubscriptionHeaders.parse(fresh.headers)
+				val (kind, text) =
+					when (classified) {
+						is SubscriptionResponse.DeadLink -> TunnelError.DeadLink to classified.announce
+						is SubscriptionResponse.Stub -> TunnelError.Stub to classified.text
+						else -> TunnelError.SubscriptionUnavailable to null
+					}
+				teardown(TunnelState.Error(kind, text, refreshed))
+				return
+			}
+			app.store.saveCache(fresh.body, fresh.headers)
+			TunnelStateHolder.set(TunnelState.Connected(connectedAt, SubscriptionHeaders.parse(fresh.headers)))
+			if (fresh.body == lastBody) continue
+			Log.i(TAG, "подписка изменилась — перезапускаю ядро")
+			lastBody = fresh.body
+			// Пересобираем конфиг на том же tun: интерфейс системе не пересоздаём, иначе
+			// у всех приложений оборвутся соединения.
+			val fd = tun?.fd ?: return
+			core.stop().onFailure { Log.w(TAG, "stopXray перед перезапуском", it) }
+			if (startCore(classified.profiles, fd).isFailure) {
+				teardown(TunnelState.Error(TunnelError.Core, null, info))
+				return
+			}
 		}
 	}
+
+	/**
+	 * Пишет конфиг и поднимает ядро. Если конфиг не принят, второй заход идёт без hysteria:
+	 * этот протокол есть только в форке Happ, ванильное ядро на нём падает при старте.
+	 */
+	private suspend fun startCore(profiles: JsonArray, fd: Int): Result<Unit> =
+		withContext(Dispatchers.IO) {
+			val configFile = File(filesDir, "config.json")
+			var config = ConfigPreparer.prepare(profiles, fd, MTU)
+			configFile.writeText(config.toString())
+			core.setDns("8.8.8.8:53").onFailure { Log.w(TAG, "setDNS", it) }
+			var check = core.test(configFile.path)
+			if (check.isFailure) {
+				Log.w(TAG, "конфиг отвергнут, повторяю без hysteria: ${check.exceptionOrNull()?.message}")
+				config = ConfigPreparer.withoutProtocols(config, setOf("hysteria"))
+				configFile.writeText(config.toString())
+				check = core.test(configFile.path)
+			}
+			val started = check.mapCatching { core.run(configFile.path).getOrThrow() }
+			lastCoreError = started.exceptionOrNull()?.message
+			started.onFailure { Log.e(TAG, "ядро не поднялось", it) }
+			started
+		}
 
 	private fun establishTun(): ParcelFileDescriptor? =
 		Builder()
@@ -156,14 +210,19 @@ class TunnelService : VpnService() {
 	}
 
 	private suspend fun teardown(final: TunnelState) {
+		release()
+		set(final)
+		ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+		stopSelf()
+	}
+
+	/** Освобождает ядро и интерфейс, ничего не сообщая экрану: состояние ставит вызывающий. */
+	private suspend fun release() {
 		withContext(Dispatchers.IO) {
 			core.stop().onFailure { Log.w(TAG, "stopXray", it) }
 			core.resetDns()
 			closeTun()
 		}
-		set(final)
-		ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-		stopSelf()
 	}
 
 	private fun closeTun() {
@@ -228,19 +287,13 @@ class TunnelService : VpnService() {
 			PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
 		)
 
-	private fun encodeHeaders(headers: Map<String, String>): String =
-		JsonObject(headers.mapValues { JsonPrimitive(it.value) }).toString()
-
-	private fun decodeHeaders(json: String): Map<String, String> =
-		runCatching {
-			Json.parseToJsonElement(json).jsonObject.mapValues { it.value.jsonPrimitive.content }
-		}.getOrDefault(emptyMap())
-
 	companion object {
 		const val ACTION_START = "online.aimuzov.aleshavpnov.START"
 		const val ACTION_STOP = "online.aimuzov.aleshavpnov.STOP"
 		const val TAG = "Alesha"
 		private const val NOTIFICATION_ID = 1
 		private const val MTU = 1500
+		private const val TICK_MS = 10_000L
+		private const val REFRESH_MS = 60 * 60 * 1000L
 	}
 }

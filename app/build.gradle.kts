@@ -24,6 +24,13 @@ android {
 		versionName = appVersionName
 		// Ядро тянет ~30 МБ на ABI; x86_64 нужен только эмулятору — см. debug ниже.
 		ndk { abiFilters += listOf("arm64-v8a") }
+		// Куда ведёт «Открыть кабинет». Mini App-ссылка содержит username бота, поэтому в git
+		// её нет: CI передаёт -PcabinetUrl, локальная сборка ведёт на страницу «Доступ» сайта.
+		buildConfigField(
+			"String",
+			"CABINET_URL",
+			"\"${(findProperty("cabinetUrl") as String?) ?: "https://durov.aimuzov.online/get"}\"",
+		)
 	}
 
 	// Ключ приходит из окружения CI; без него debug-подпись, release — без signingConfig.

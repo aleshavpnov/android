@@ -49,6 +49,31 @@ class SubscriptionHeadersTest {
 	}
 
 	@Test
+	fun `plan card is decoded from x-alesha-plan`() {
+		val json = """{"plan":"Прайм","deviceLimit":3,"devices":2,"usedBytes":13314398208,"expiresAt":1791417600}"""
+		val plan = SubscriptionHeaders.parse(mapOf("x-alesha-plan" to b64(json))).plan!!
+		assertEquals("Прайм", plan.plan)
+		assertEquals(3, plan.deviceLimit)
+		assertEquals(2, plan.devices)
+		assertEquals(13314398208L, plan.usedBytes)
+		assertEquals(1791417600L, plan.expiresAt)
+	}
+
+	@Test
+	fun `plan card tolerates nulls and unknown keys`() {
+		val plan = SubscriptionHeaders.parse(mapOf("x-alesha-plan" to """{"plan":null,"extra":1}""")).plan!!
+		assertNull(plan.plan)
+		assertNull(plan.deviceLimit)
+	}
+
+	@Test
+	fun `broken or missing plan card is null`() {
+		assertNull(SubscriptionHeaders.parse(mapOf("x-alesha-plan" to "base64:%%%")).plan)
+		assertNull(SubscriptionHeaders.parse(mapOf("x-alesha-plan" to "not json")).plan)
+		assertNull(SubscriptionHeaders.parse(emptyMap()).plan)
+	}
+
+	@Test
 	fun `header names are matched case insensitively`() {
 		val info = SubscriptionHeaders.parse(mapOf("Profile-Title" to "X"))
 		assertEquals("X", info.title)

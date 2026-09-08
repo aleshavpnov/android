@@ -1,6 +1,7 @@
 package online.aimuzov.aleshavpnov.sub
 
 import java.util.Base64
+import kotlinx.serialization.json.Json
 
 /** Разбор HAPP-заголовков подписки. Кириллицу бот шлёт с префиксом `base64:`. */
 object SubscriptionHeaders {
@@ -10,8 +11,14 @@ object SubscriptionHeaders {
 			title = lower["profile-title"]?.let(::decode),
 			announce = lower["announce"]?.let(::decode)?.takeIf { it.isNotBlank() && it != "0" },
 			userinfo = lower["subscription-userinfo"]?.let(::parseUserInfo),
+			plan = lower["x-alesha-plan"]?.let(::decode)?.let(::parsePlan),
 		)
 	}
+
+	private val json = Json { ignoreUnknownKeys = true }
+
+	private fun parsePlan(value: String): PlanInfo? =
+		runCatching { json.decodeFromString<PlanInfo>(value) }.getOrNull()
 
 	fun decode(value: String): String {
 		if (!value.startsWith("base64:")) return value
