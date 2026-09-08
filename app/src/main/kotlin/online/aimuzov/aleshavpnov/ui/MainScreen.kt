@@ -187,7 +187,8 @@ private fun InfoBlock(state: TunnelState) {
 private fun ErrorBlock(state: TunnelState, onRetry: () -> Unit) {
 	if (state !is TunnelState.Error) return
 	Spacer(Modifier.height(16.dp))
-	state.message?.let {
+	// У dead-link и заглушки текст ошибки и есть announce — он уже показан выше.
+	state.message?.takeIf { it != state.info?.announce }?.let {
 		Text(
 			it,
 			style = MaterialTheme.typography.bodySmall,
