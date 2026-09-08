@@ -57,12 +57,6 @@ fun MainScreen(
 			horizontalAlignment = Alignment.CenterHorizontally,
 			verticalArrangement = Arrangement.Center,
 		) {
-			Text(
-				text = "Alesha Vpnov",
-				style = MaterialTheme.typography.titleLarge,
-				fontWeight = FontWeight.SemiBold,
-			)
-			Spacer(Modifier.height(48.dp))
 			PowerButton(
 				state = current,
 				enabled = hasSubscription || current is TunnelState.Connected,
@@ -126,7 +120,7 @@ private fun statusText(state: TunnelState, hasSubscription: Boolean): String =
 			if (hasSubscription) "VPN выключен"
 			else "Подписки пока нет. Откройте кабинет в Telegram и нажмите «Открыть в приложении»."
 		is TunnelState.Connecting -> state.step
-		is TunnelState.Connected -> "Защищено с ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(state.sinceMillis))}"
+		is TunnelState.Connected -> "VPN включён"
 		is TunnelState.Error -> errorTitle(state.kind)
 	}
 
@@ -152,7 +146,6 @@ private fun InfoBlock(state: TunnelState) {
 		}
 	if (info == null) return
 	Spacer(Modifier.height(16.dp))
-	info.title?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 	info.userinfo?.let { u ->
 		val expire = u.expire?.takeIf { it > 0 }?.let { Date(it * 1000) }
 		val expired = expire != null && expire.before(Date())
