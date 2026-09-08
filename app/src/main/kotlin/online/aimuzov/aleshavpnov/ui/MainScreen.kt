@@ -63,12 +63,11 @@ fun MainScreen(
 				onConnect = onConnect,
 				onDisconnect = onDisconnect,
 			)
-			Spacer(Modifier.height(24.dp))
-			Text(
-				text = statusText(current, hasSubscription),
-				style = MaterialTheme.typography.bodyLarge,
-				textAlign = TextAlign.Center,
-			)
+			val status = statusText(current, hasSubscription)
+			if (status.isNotEmpty()) {
+				Spacer(Modifier.height(24.dp))
+				Text(text = status, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+			}
 			InfoBlock(current)
 			ErrorBlock(current, onRetry = onConnect)
 			available?.let { v ->
@@ -120,7 +119,7 @@ private fun statusText(state: TunnelState, hasSubscription: Boolean): String =
 			if (hasSubscription) "VPN выключен"
 			else "Подписки пока нет. Откройте кабинет в Telegram и нажмите «Открыть в приложении»."
 		is TunnelState.Connecting -> state.step
-		is TunnelState.Connected -> "VPN включён"
+		is TunnelState.Connected -> ""
 		is TunnelState.Error -> errorTitle(state.kind)
 	}
 
