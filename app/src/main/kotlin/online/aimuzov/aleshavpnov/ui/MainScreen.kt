@@ -17,11 +17,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -111,19 +110,13 @@ fun MainScreen(
 	val p = presentation(current, hasSubscription, palette)
 
 	Surface(modifier = Modifier.fillMaxSize(), color = palette.background) {
-		// Скролл на случай маленького экрана: центрирование остаётся, пока всё влезает.
-		Column(
-			modifier =
-				Modifier.fillMaxSize()
-					.systemBarsPadding()
-					.verticalScroll(rememberScrollState())
-					.padding(horizontal = 16.dp, vertical = 24.dp),
-			verticalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterVertically),
-		) {
-			Header(p.title, p.subtitle)
+		// Круг привязан к центру экрана, а не к потоку: иначе он прыгал бы от длины
+		// заголовка и от появления карточки. Шапка живёт сверху, карточка снизу.
+		Box(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 16.dp, vertical = 24.dp)) {
+			Header(p.title, p.subtitle, Modifier.align(Alignment.TopStart))
 			Indicator(
 				presentation = p,
-				since = (current as? TunnelState.Connected)?.sinceMillis,
+				modifier = Modifier.align(Alignment.Center),
 				onClick = {
 					when (p.action) {
 						Action.Connect -> onConnect()
@@ -132,13 +125,27 @@ fun MainScreen(
 					}
 				},
 			)
-			if (p.card && info != null && (info.userinfo != null || info.plan != null)) {
-				PlanCard(info, dot = p.dot, expired = p.expired)
+			if (p.timer && current is TunnelState.Connected) {
+				Elapsed(
+					since = (current as TunnelState.Connected).sinceMillis,
+					modifier = Modifier.align(Alignment.Center).offset(y = TIMER_OFFSET),
+				)
 			}
-			available?.let { UpdateChip(it, onInstallUpdate) }
+			Column(
+				modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(),
+				verticalArrangement = Arrangement.spacedBy(10.dp),
+			) {
+				if (p.card && info != null && (info.userinfo != null || info.plan != null)) {
+					PlanCard(info, dot = p.dot, expired = p.expired)
+				}
+				available?.let { UpdateChip(it, onInstallUpdate) }
+			}
 		}
 	}
 }
+
+/** Таймер стоит под кругом: половина диаметра плюс воздух из макета. */
+private val TIMER_OFFSET = 168.dp / 2 + 20.dp
 
 @Composable
 private fun presentation(state: TunnelState, hasSubscription: Boolean, palette: AppPalette): Presentation {
@@ -251,9 +258,9 @@ private fun errorTitle(kind: TunnelError): String =
 	}
 
 @Composable
-private fun Header(title: String, subtitle: String) {
+private fun Header(title: String, subtitle: String, modifier: Modifier = Modifier) {
 	val palette = LocalPalette.current
-	Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+	Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
 		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 			Icon(painterResource(R.drawable.ic_lock), null, tint = Emerald, modifier = Modifier.size(14.dp))
 			Text("ЧАСТНЫЙ ДОСТУП", fontSize = 12.sp, fontWeight = FontWeight.Medium, letterSpacing = 2.4.sp, color = Emerald)
@@ -271,40 +278,33 @@ private fun Header(title: String, subtitle: String) {
 }
 
 @Composable
-private fun Indicator(presentation: Presentation, since: Long?, onClick: () -> Unit) {
+private fun Indicator(presentation: Presentation, modifier: Modifier, onClick: () -> Unit) {
 	val palette = LocalPalette.current
-	Column(
-		modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-		horizontalAlignment = Alignment.CenterHorizontally,
-		verticalArrangement = Arrangement.spacedBy(14.dp),
+	Box(
+		modifier =
+			modifier.size(168.dp)
+				.ring(presentation.ring)
+				.clip(CircleShape)
+				.background(palette.surface)
+				.border(1.dp, palette.outline, CircleShape),
+		contentAlignment = Alignment.Center,
 	) {
 		Box(
 			modifier =
-				Modifier.size(168.dp)
-					.ring(presentation.ring)
+				Modifier.size(124.dp)
 					.clip(CircleShape)
-					.background(palette.surface)
-					.border(1.dp, palette.outline, CircleShape),
+					.background(presentation.circle)
+					.clickable(enabled = presentation.enabled, onClick = onClick),
 			contentAlignment = Alignment.Center,
 		) {
-			Box(
-				modifier =
-					Modifier.size(124.dp)
-						.clip(CircleShape)
-						.background(presentation.circle)
-						.clickable(enabled = presentation.enabled, onClick = onClick),
-				contentAlignment = Alignment.Center,
-			) {
-				Icon(painterResource(presentation.icon), null, tint = Color.White, modifier = Modifier.size(48.dp))
-			}
+			Icon(painterResource(presentation.icon), null, tint = Color.White, modifier = Modifier.size(48.dp))
 		}
-		if (presentation.timer && since != null) Elapsed(since)
 	}
 }
 
 /** HH:MM:SS с момента подключения; тикает раз в секунду. */
 @Composable
-private fun Elapsed(since: Long) {
+private fun Elapsed(since: Long, modifier: Modifier = Modifier) {
 	val palette = LocalPalette.current
 	var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
 	LaunchedEffect(since) {
@@ -315,7 +315,11 @@ private fun Elapsed(since: Long) {
 	}
 	val total = ((now - since) / 1000).coerceAtLeast(0)
 	val text = "%02d:%02d:%02d".format(total / 3600, total / 60 % 60, total % 60)
-	Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+	Row(
+		modifier = modifier,
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(6.dp),
+	) {
 		Icon(painterResource(R.drawable.ic_clock), null, tint = palette.muted, modifier = Modifier.size(14.dp))
 		Text(text, fontSize = 14.sp, color = palette.muted, style = Tabular)
 	}
