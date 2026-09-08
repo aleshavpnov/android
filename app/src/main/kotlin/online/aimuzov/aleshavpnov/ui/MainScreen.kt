@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -69,7 +68,8 @@ private val Tabular = TextStyle(fontFeatureSettings = "tnum")
 /** Кольцо вокруг индикатора: по нему видно состояние ещё до чтения заголовка. */
 private enum class Ring { None, Spinner, Glow, Dashed, Alert }
 
-private enum class Primary { None, OpenCabinet }
+/** Что делает нажатие на круг: подключить, отключить или увести за свежей ссылкой. */
+private enum class Action { Connect, Disconnect, OpenCabinet }
 
 /** Всё, что экран рисует, выведено из состояния туннеля один раз — вёрстка ниже только раскладывает. */
 private data class Presentation(
@@ -82,9 +82,8 @@ private data class Presentation(
 	val timer: Boolean,
 	val expired: Boolean,
 	val card: Boolean,
-	val clickable: Boolean,
-	val primary: Primary,
-	val secondary: String?,
+	val action: Action,
+	val enabled: Boolean,
 )
 
 @Composable
@@ -125,18 +124,18 @@ fun MainScreen(
 			Indicator(
 				presentation = p,
 				since = (current as? TunnelState.Connected)?.sinceMillis,
-				onClick = { if (current is TunnelState.Connected) onDisconnect() else onConnect() },
+				onClick = {
+					when (p.action) {
+						Action.Connect -> onConnect()
+						Action.Disconnect -> onDisconnect()
+						Action.OpenCabinet -> onOpenCabinet()
+					}
+				},
 			)
 			if (p.card && info != null && (info.userinfo != null || info.plan != null)) {
 				PlanCard(info, dot = p.dot, expired = p.expired)
 			}
-			Actions(
-				presentation = p,
-				update = available,
-				onOpenCabinet = onOpenCabinet,
-				onRetry = onConnect,
-				onInstallUpdate = onInstallUpdate,
-			)
+			available?.let { UpdateChip(it, onInstallUpdate) }
 		}
 	}
 }
@@ -154,17 +153,16 @@ private fun presentation(state: TunnelState, hasSubscription: Boolean, palette: 
 			timer = false,
 			expired = false,
 			card = false,
-			clickable = false,
-			primary = Primary.OpenCabinet,
-			secondary = null,
+			action = Action.OpenCabinet,
+			enabled = true,
 		)
 	return when (state) {
 		TunnelState.Idle ->
 			if (!hasSubscription) noSubscription
 			else
 				Presentation(
-					title = "VPN выключен",
-					subtitle = "Подписка добавлена. Нажмите «Включить» — остальное приложение сделает само.",
+					title = "Соединение выключено",
+					subtitle = "Подписка добавлена. Нажмите кнопку — остальное приложение сделает само.",
 					circle = palette.idle,
 					ring = Ring.None,
 					icon = R.drawable.ic_power,
@@ -172,9 +170,8 @@ private fun presentation(state: TunnelState, hasSubscription: Boolean, palette: 
 					timer = false,
 					expired = false,
 					card = true,
-					clickable = true,
-					primary = Primary.None,
-					secondary = null,
+					action = Action.Connect,
+					enabled = true,
 				)
 		is TunnelState.Connecting ->
 			Presentation(
@@ -187,9 +184,8 @@ private fun presentation(state: TunnelState, hasSubscription: Boolean, palette: 
 				timer = false,
 				expired = false,
 				card = true,
-				clickable = false,
-				primary = Primary.None,
-				secondary = null,
+				action = Action.Connect,
+				enabled = false,
 			)
 		is TunnelState.Connected ->
 			Presentation(
@@ -202,9 +198,8 @@ private fun presentation(state: TunnelState, hasSubscription: Boolean, palette: 
 				timer = true,
 				expired = false,
 				card = true,
-				clickable = true,
-				primary = Primary.None,
-				secondary = null,
+				action = Action.Disconnect,
+				enabled = true,
 			)
 		is TunnelState.Error ->
 			when (state.kind) {
@@ -222,9 +217,8 @@ private fun presentation(state: TunnelState, hasSubscription: Boolean, palette: 
 						timer = false,
 						expired = true,
 						card = true,
-						clickable = hasSubscription,
-						primary = Primary.OpenCabinet,
-						secondary = "Повторить",
+						action = Action.OpenCabinet,
+						enabled = true,
 					)
 				else ->
 					Presentation(
@@ -237,9 +231,8 @@ private fun presentation(state: TunnelState, hasSubscription: Boolean, palette: 
 						timer = false,
 						expired = false,
 						card = true,
-						clickable = hasSubscription,
-						primary = Primary.None,
-						secondary = if (state.kind == TunnelError.NoVpnPermission) "Разрешить" else "Повторить",
+						action = Action.Connect,
+						enabled = true,
 					)
 			}
 	}
@@ -248,13 +241,13 @@ private fun presentation(state: TunnelState, hasSubscription: Boolean, palette: 
 private fun errorTitle(kind: TunnelError): String =
 	when (kind) {
 		TunnelError.NoSubscription -> "Подписки пока нет"
-		TunnelError.NoVpnPermission -> "Нужно разрешение на VPN"
+		TunnelError.NoVpnPermission -> "Нужно разрешение системы"
 		TunnelError.SubscriptionUnavailable -> "Не удалось загрузить подписку"
 		TunnelError.DeadLink -> "Ссылка устарела"
 		TunnelError.Stub -> "Доступ ограничен"
 		TunnelError.Core -> "Ядро отвергло конфиг"
 		TunnelError.CoreDied -> "Соединение оборвалось"
-		TunnelError.Revoked -> "VPN отключила система"
+		TunnelError.Revoked -> "Соединение прервала система"
 	}
 
 @Composable
@@ -299,7 +292,7 @@ private fun Indicator(presentation: Presentation, since: Long?, onClick: () -> U
 					Modifier.size(124.dp)
 						.clip(CircleShape)
 						.background(presentation.circle)
-						.clickable(enabled = presentation.clickable, onClick = onClick),
+						.clickable(enabled = presentation.enabled, onClick = onClick),
 				contentAlignment = Alignment.Center,
 			) {
 				Icon(painterResource(presentation.icon), null, tint = Color.White, modifier = Modifier.size(48.dp))
@@ -467,49 +460,11 @@ private fun CardRow(label: String, value: String, valueColor: Color? = null) {
 	}
 }
 
+/** Единственная кнопка на экране, и та появляется лишь когда вышла новая версия. */
 @Composable
-private fun Actions(
-	presentation: Presentation,
-	update: VersionInfo?,
-	onOpenCabinet: () -> Unit,
-	onRetry: () -> Unit,
-	onInstallUpdate: () -> Unit,
-) {
-	val palette = LocalPalette.current
-	if (presentation.primary == Primary.None && presentation.secondary == null && update == null) return
-	Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-		if (presentation.primary == Primary.OpenCabinet) {
-			Row(
-				modifier =
-					Modifier.fillMaxWidth()
-						.height(52.dp)
-						.clip(RoundedCornerShape(8.dp))
-						.background(Emerald)
-						.clickable(onClick = onOpenCabinet),
-				horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Icon(painterResource(R.drawable.ic_send), null, tint = Color.White, modifier = Modifier.size(16.dp))
-				Text("Открыть кабинет", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-			}
-		}
-		presentation.secondary?.let { label ->
-			Row(
-				modifier =
-					Modifier.fillMaxWidth()
-						.clip(RoundedCornerShape(8.dp))
-						.clickable(onClick = onRetry)
-						.padding(10.dp),
-				horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Icon(painterResource(R.drawable.ic_refresh_cw), null, tint = palette.muted, modifier = Modifier.size(14.dp))
-				Text(label, color = palette.muted, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-			}
-		}
-		update?.let { v ->
-			Button(onClick = onInstallUpdate, modifier = Modifier.fillMaxWidth()) { Text("Обновить до ${v.versionName}") }
-		}
+private fun UpdateChip(version: VersionInfo, onInstall: () -> Unit) {
+	Button(onClick = onInstall, modifier = Modifier.fillMaxWidth()) {
+		Text("Обновить до ${version.versionName}")
 	}
 }
 
