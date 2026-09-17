@@ -32,7 +32,7 @@ class UpdateChecker(private val store: SubscriptionStore, private val installedC
 
 	companion object {
 		const val MANIFEST_URL =
-			"https://github.com/aimuzov/aleshavpnov-releases/releases/latest/download/version.json"
+			"https://github.com/aleshavpnov/android/releases/latest/download/version.json"
 		private const val DAY_MS = 24L * 60 * 60 * 1000
 	}
 }

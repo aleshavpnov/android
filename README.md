@@ -3,7 +3,8 @@
 Одна кнопка «Включить». Подписка добавляется из кабинета в Telegram по ссылке
 `https://durov.aimuzov.online/app/add#u=…` (или `aleshavpnov://add?u=…`), VPN поднимается сам.
 Ядро — libXray (Xray-core) с встроенным TUN-инбаундом; дескриптор от `VpnService` передаётся
-через `env.xray.tun.fd`. Дизайн: `docs/superpowers/specs/2026-09-07-android-client-design.md`.
+через `env.xray.tun.fd`. Сайт и кабинет — в [aleshavpnov/web](https://github.com/aleshavpnov/web); бот и API — в приватном
+репозитории.
 
 ## Окружение (macOS)
 
@@ -22,9 +23,9 @@ Gradle читает `ANDROID_HOME` из окружения либо `sdk.dir` и
 ## Сборка
 
 ```bash
-npm run core -w @aleshavpnov/android      # libXray.aar → app/libs (один раз на версию ядра)
-npm run build:debug -w @aleshavpnov/android
-npm run test:jvm -w @aleshavpnov/android
+scripts/build-core.sh          # libXray.aar → app/libs (один раз на версию ядра)
+./gradlew assembleDebug
+./gradlew testDebugUnitTest
 ```
 
 Версия берётся из `-PversionName=X.Y.Z` (CI ставит по тегу `android-vX.Y.Z`), локально — `0.0.0`.
@@ -33,8 +34,9 @@ npm run test:jvm -w @aleshavpnov/android
 
 Тег `android-vX.Y.Z` запускает `.github/workflows/android.yml`: сборка ядра (кэш по тегу
 libXray), Gradle, юнит-тесты, подпись ключом из secrets, публикация `app-release.apk` и
-`version.json` в `aimuzov/aleshavpnov-releases`. Secrets: `KEYSTORE_BASE64`,
-`KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`, `RELEASES_PAT`. Отпечаток ключа
+`version.json` релизом этого репозитория; приложение проверяет `releases/latest/download/version.json`.
+Secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`; переменная
+`CABINET_URL` — ссылка на Mini App кабинета. Отпечаток ключа
 (`keytool -list -v -keystore release.jks`) — в env Caddy `APP_CERT_SHA256` на Timeweb, иначе
 App Link не верифицируется.
 

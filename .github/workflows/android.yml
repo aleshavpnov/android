@@ -1,0 +1,153 @@
+# Android-клиент: ядро (libXray) → Gradle → по тегу android-vX.Y.Z публикация APK
+# релизом этого репозитория.
+name: android
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', 'gradle/**', 'scripts/**', '*.kts', 'gradle.properties', '.github/workflows/android.yml']
+    tags: ['android-v*']
+  pull_request:
+    paths: ['app/**', 'gradle/**', 'scripts/**', '*.kts', 'gradle.properties', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+env:
+  LIBXRAY_TAG: v26.7.28
+  NDK_VERSION: 27.2.12479018
+
+jobs:
+  core:
+    name: libXray.aar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: app/libs/libXray.aar
+          key: libxray-${{ env.LIBXRAY_TAG }}-ndk${{ env.NDK_VERSION }}-v1
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: NDK
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: gomobile
+        run: |
+          set -euo pipefail
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/gomobile" init
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/build-core.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libXray
+          path: app/libs/libXray.aar
+          if-no-files-found: error
+
+  build:
+    name: apk
+    needs: core
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: libXray
+          path: app/libs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - id: version
+        name: Version from tag
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            echo "name=${GITHUB_REF#refs/tags/android-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Keystore
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+      - name: Test and assemble
+        env:
+          VERSION: ${{ steps.version.outputs.name }}
+          # Ссылка на Mini App кабинета (содержит username бота) — repository variable.
+          CABINET_URL: ${{ vars.CABINET_URL }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [[ -n "$CABINET_URL" ]]; then extra+=("-PcabinetUrl=$CABINET_URL"); fi
+          ./gradlew --no-daemon testDebugUnitTest assembleRelease "-PversionName=$VERSION" "${extra[@]}"
+      - name: version.json
+        env:
+          VERSION: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          # Без ключа (сборка на PR) Gradle отдаёт app-release-unsigned.apk — берём то,
+          # что получилось, и приводим имя к тому, под которым файл лежит в релизе.
+          signed=app/build/outputs/apk/release/app-release.apk
+          apk=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          test -f "$apk"
+          if [[ "$apk" != "$signed" ]]; then mv "$apk" "$signed"; fi
+          apk="$signed"
+          IFS=. read -r major minor patch <<< "$VERSION"
+          code=$((major * 10000 + minor * 100 + patch))
+          sha=$(sha256sum "$apk" | cut -d' ' -f1)
+          printf '{"versionCode":%d,"versionName":"%s","url":"%s","sha256":"%s"}\n' \
+            "$code" "$VERSION" "https://github.com/aleshavpnov/android/releases/download/v$VERSION/app-release.apk" "$sha" \
+            > app/build/outputs/apk/release/version.json
+          cat app/build/outputs/apk/release/version.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/version.json
+          if-no-files-found: error
+
+  publish:
+    name: release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/android-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: out
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" out/app-release.apk out/version.json \
+            --repo aleshavpnov/android --title "Alesha Vpnov $VERSION" \
+            --notes "Android-клиент Alesha Vpnov $VERSION. Приложение обновится само; вручную — скачайте app-release.apk."

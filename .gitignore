@@ -1,0 +1,18 @@
+# Артефакты ядра собирает scripts/build-core.sh, в git им не место (libXray.aar ~40 МБ)
+app/libs/
+.core/
+**/build/
+.gradle/
+.kotlin/
+local.properties
+
+# Ключ подписи — только в secrets CI
+*.jks
+*.keystore
+
+# Временные файлы
+*.log
+*.swp
+.DS_Store
+.serena/
+.superpowers/
