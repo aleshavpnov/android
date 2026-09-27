@@ -15,6 +15,11 @@ class AddLinkTest {
 	}
 
 	@Test
+	fun `new site host is an app link too`() {
+		assertEquals(sub, AddLink.parse("https://aleshavpnov.ru/app/add#u=$b64url"))
+	}
+
+	@Test
 	fun `custom scheme carries the url in the query`() {
 		assertEquals(sub, AddLink.parse("aleshavpnov://add?u=$b64url"))
 	}

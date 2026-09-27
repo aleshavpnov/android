@@ -8,7 +8,8 @@ import java.util.Base64
  * У https она во фрагменте (не уходит на сервер), у своей схемы — в query.
  */
 object AddLink {
-	const val HOST = "durov.aimuzov.online"
+	// Старый хост держим, пока по нему ходят ссылки из веба и уже выданные кабинетом.
+	val HOSTS = setOf("aleshavpnov.ru", "durov.aimuzov.online")
 	const val PATH = "/app/add"
 	const val SCHEME = "aleshavpnov"
 
@@ -17,7 +18,7 @@ object AddLink {
 		val uri = runCatching { URI(link) }.getOrNull() ?: return null
 		val raw =
 			when (uri.scheme?.lowercase()) {
-				"https" -> if (uri.host == HOST && uri.path == PATH) param(uri.rawFragment) else null
+				"https" -> if (uri.host in HOSTS && uri.path == PATH) param(uri.rawFragment) else null
 				SCHEME -> if (uri.host == "add") param(uri.rawQuery) else null
 				else -> null
 			} ?: return null

@@ -1,7 +1,7 @@
 # Alesha Vpnov для Android
 
 Одна кнопка «Включить». Подписка добавляется из кабинета в Telegram по ссылке
-`https://durov.aimuzov.online/app/add#u=…` (или `aleshavpnov://add?u=…`), VPN поднимается сам.
+`https://aleshavpnov.ru/app/add#u=…` (или `aleshavpnov://add?u=…`), VPN поднимается сам.
 Ядро — libXray (Xray-core) с встроенным TUN-инбаундом; дескриптор от `VpnService` передаётся
 через `env.xray.tun.fd`. Сайт и кабинет — в [aleshavpnov/web](https://github.com/aleshavpnov/web); бот и API — в приватном
 репозитории.

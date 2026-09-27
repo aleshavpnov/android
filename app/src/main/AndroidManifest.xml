@@ -27,11 +27,14 @@
 				<action android:name="android.intent.action.MAIN" />
 				<category android:name="android.intent.category.LAUNCHER" />
 			</intent-filter>
-			<!-- App Link из кабинета: https://durov.aimuzov.online/app/add#u=… -->
+			<!-- App Link из кабинета: https://aleshavpnov.ru/app/add#u=...
+			     Старый хост оставлен, пока веб и выданные ссылки ещё ведут на него.
+			     assetlinks.json отдают оба. -->
 			<intent-filter android:autoVerify="true">
 				<action android:name="android.intent.action.VIEW" />
 				<category android:name="android.intent.category.DEFAULT" />
 				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="https" android:host="aleshavpnov.ru" android:path="/app/add" />
 				<data android:scheme="https" android:host="durov.aimuzov.online" android:path="/app/add" />
 			</intent-filter>
 			<!-- Своя схема — для intent:// со страницы-моста и для ссылок из бота. -->
