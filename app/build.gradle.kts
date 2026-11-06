@@ -29,7 +29,7 @@ android {
 		buildConfigField(
 			"String",
 			"CABINET_URL",
-			"\"${(findProperty("cabinetUrl") as String?) ?: "https://durov.aimuzov.online/get"}\"",
+			"\"${(findProperty("cabinetUrl") as String?) ?: "https://aleshavpnov.ru/get"}\"",
 		)
 	}
 
